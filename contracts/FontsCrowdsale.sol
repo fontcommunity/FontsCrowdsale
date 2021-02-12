@@ -64,7 +64,7 @@ contract FontsCrowdsale is Ownable {
     uint256 AMOUNT_ETH_FOR_UNISWAP_LP = 143 ether;
   
     // How many $FONTs need to lock in Uniswap LP 
-    uint256 AMOUNT_FONT_FOR_UNISWAP_LP = 100000;;
+    uint256 AMOUNT_FONT_FOR_UNISWAP_LP = 100000 * 10**18;
 
 
     // Contributions state
@@ -281,7 +281,7 @@ contract FontsCrowdsale is Ownable {
             AMOUNT_FONT_FOR_UNISWAP_LP,
             AMOUNT_FONT_FOR_UNISWAP_LP,
             AMOUNT_ETH_FOR_UNISWAP_LP,
-            address(0), // burn address
+            owner, // burn address
             now
         );
         liquidityLocked = true;
