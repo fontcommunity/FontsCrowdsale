@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.6.0;
+pragma solidity ^0.7.3;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IUniswapV2Router.sol";
+import "./IUniswapV2Router02.sol";
 
 interface Pauseable {
     function unpause() external;
@@ -12,7 +12,7 @@ interface Pauseable {
 
 /**
  * @title FontsCrowdsale
- * @dev Crowdsale contract for $FONT.
+ * @dev Crowdsale contract for $FONT. 
  *      Pre-Sale done in this manner:
  *        1st Round: 180ETH and 1111 $FONT per $ETH
  *        2nd Round: 220ETH and 909 $FONT per $ETH
@@ -28,7 +28,7 @@ interface Pauseable {
 contract FontsCrowdsale is Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
-    address owner;
+    address payable contract_owner;
 
     //===============================================//
     //          Contract Variables                   //
@@ -36,35 +36,37 @@ contract FontsCrowdsale is Ownable {
 
 
     // Caps
-    uint256 public constant ROUND_1_CAP = 180 ether; 
-    uint256 public constant ROUND_2_CAP = 400 ether; 
+    uint256 public constant ROUND_1_CAP = 180 ether; //@change for testing
+    uint256 public constant ROUND_2_CAP = 400 ether; //@change
 
-    uint256 public constant SOFT_CAP = 300 ether; // Softcap  = 300
-    uint256 public constant HARD_CAP = 400 ether; // hardcap = +100
+    uint256 public constant SOFT_CAP = 300 ether; // Softcap  = 300 //@change for testing 
+    uint256 public constant HARD_CAP = 400 ether; // hardcap = +100 //@change for testing 
 
     uint256 public constant FONT_PER_ETH_ROUND_1 = 1111;
     uint256 public constant FONT_PER_ETH_ROUND_2 = 909;
+
+    uint256 public constant INITIAL_UNLOCK_PERCENT = 60; //@change this
     
     
     // During tests, we should use 12 ether instead given that by default we only have 20 addresses.
-    uint256 public constant CAP_PER_ADDRESS = 6 ether;
+    uint256 public constant CAP_PER_ADDRESS = 6 ether; //@change
     uint256 public constant MIN_CONTRIBUTION = 0.1 ether;
 
 
     //TIME
-    // Start time 08/09/2020 @ 6:00am (UTC) // For Cooks
-    uint256 public constant CROWDSALE_START_TIME = 1596952800;
+    // Start time 08/09/2020 @ 6:00am (UTC) 
+    uint256 public constant CROWDSALE_START_TIME = 1613459928; //@change
     // Start time 08/11/2020 @ 4:00pm (UTC)
 
     // End time
-    uint256 public constant CROWDSALE_END_TIME = 7 days;
+    uint256 public constant CROWDSALE_END_TIME = CROWDSALE_START_TIME + 7 days; //@change
 
 
     // How many ETH need to lock in Uniswap LP 
-    uint256 AMOUNT_ETH_FOR_UNISWAP_LP = 143 ether;
+    uint256 AMOUNT_ETH_FOR_UNISWAP_LP = 143 ether; //@change
   
     // How many $FONTs need to lock in Uniswap LP 
-    uint256 AMOUNT_FONT_FOR_UNISWAP_LP = 100000 * 10**18;
+    uint256 AMOUNT_FONT_FOR_UNISWAP_LP = 1000000 * 10**18; //@change
 
 
     // Contributions state
@@ -91,7 +93,7 @@ contract FontsCrowdsale is Ownable {
         IERC20 _fontToken,
         address _uniswapRouter
     ) public Ownable() {
-        owner = msg.sender;        
+        contract_owner = msg.sender;        
         fontToken = _fontToken;
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
     }
@@ -181,7 +183,11 @@ contract FontsCrowdsale is Ownable {
         contributions[beneficiary] = contributions[beneficiary].add(weiAmount);
 
         // Calculate how many $FONTs can be bought with that wei amount
+        
         uint256 tokenAmount = _getTokenAmount(weiAmount);
+
+        tokenAmount = tokenAmount.mul(INITIAL_UNLOCK_PERCENT).div(100);
+
         // Transfer the $FONTs to the beneficiary
         fontToken.safeTransfer(beneficiary, tokenAmount);
 
@@ -200,13 +206,13 @@ contract FontsCrowdsale is Ownable {
     // Is the sale open now?
     //@done
     function isOpen() public view returns (bool) {
-        return now >= CROWDSALE_START_TIME;
+        return block.timestamp >= CROWDSALE_START_TIME;
     }
 
     // Has the sale ended?
     //@done
     function hasEnded() public view returns (bool) {
-        return now >= CROWDSALE_END_TIME || weiRaised >= ROUND_2_CAP;
+        return block.timestamp >= CROWDSALE_END_TIME || weiRaised >= HARD_CAP;
     }
 
     // Has the Round 2 started
@@ -271,7 +277,7 @@ contract FontsCrowdsale is Ownable {
         require(!liquidityLocked, "FontCrowdsale: Liquidity already locked");
 
         // Unpause FONTToken forever. This will kick off the game.
-        Pauseable(address(fontToken)).unpause();
+        //Pauseable(address(fontToken)).unpause();
 
         // Send the entire balance and all tokens in the contract to Uniswap LP
         fontToken.approve(address(uniswapRouter), AMOUNT_FONT_FOR_UNISWAP_LP);
@@ -281,8 +287,8 @@ contract FontsCrowdsale is Ownable {
             AMOUNT_FONT_FOR_UNISWAP_LP,
             AMOUNT_FONT_FOR_UNISWAP_LP,
             AMOUNT_ETH_FOR_UNISWAP_LP,
-            owner, // burn address
-            now
+            contract_owner, // burn address
+            block.timestamp
         );
         liquidityLocked = true;
     }
@@ -290,11 +296,11 @@ contract FontsCrowdsale is Ownable {
     // Return bool when crowdsale reached soft cap and time is over
     //@Done
     function isCrowdsaleSuccess() public view returns (bool) {
-        return now >= CROWDSALE_END_TIME && weiRaised >= SOFT_CAP;
+        return (block.timestamp >= CROWDSALE_END_TIME && weiRaised >= SOFT_CAP) || weiRaised >= HARD_CAP;
     }    
     //@Done
-    function isCrowdsaleEnded() public view returns (bool) {
-        return now >= CROWDSALE_END_TIME;
+    function isCrowdsaleTimeEnded() public view returns (bool) {
+        return block.timestamp >= CROWDSALE_END_TIME;
     }
     //@Done
     function withdrawEth(uint amount) external onlyOwner returns(bool){
@@ -302,20 +308,20 @@ contract FontsCrowdsale is Ownable {
             isCrowdsaleSuccess(),
             "FontsCrowdsale: can only send liquidity once hardcap is reached"
         );        
-        require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
-        require(amount <= this.balance);
-        owner.transfer(amount);
+        //require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
+        require(amount <= address(this).balance);
+        contract_owner.transfer(amount);
         return true;
     }
     //@Done
     function withdrawFonts(uint amount) external onlyOwner returns(bool){
         require(
-            isCrowdsaleEnded(),
+            isCrowdsaleTimeEnded(),
             "FontCrowdsale: can only withdraw after crowdsale time ends"
         );  
-        require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
+        //require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
         require(amount <= fontToken.balanceOf(address(this)));
-        fontToken.safeTransfer(owner, amount);
+        fontToken.safeTransfer(contract_owner, amount);
         return true;
     }
     //@Done
@@ -324,7 +330,7 @@ contract FontsCrowdsale is Ownable {
     }
     //@Done 
     function getEthBalance() public view returns(uint){
-        return this.balance;
+        return address(this).balance;
     }
 
 }

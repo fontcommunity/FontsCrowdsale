@@ -14,16 +14,16 @@ module.exports = {
       url: `https://eth-rinkeby.alchemyapi.io/v2/${alchemyApiKey}`,
       accounts: {mnemonic: mnemonic}
     },
-    mainnet: {
+    /*mainnet: {
       url: `https://eth-mainnet.alchemyapi.io/v2/${alchemyApiKey}`,
       accounts: [pvt1key],
       chainId: 1,
       live: true,
       saveDeployments: true,
-    },
+    },*/
   },
   etherscan: {
-    apiKey: ""
+    apiKey: "QAXK46VQB2BK1JJS5ZRU2UGWSWKAICDNB4"
   },  
   solidity: "0.7.3",
 };
