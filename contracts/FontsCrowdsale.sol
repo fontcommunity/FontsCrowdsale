@@ -4,7 +4,12 @@ pragma solidity ^0.7.3;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Context.sol";
+
 import "./IUniswapV2Router02.sol";
+import "./IUniswapV2Factory.sol";
+import "./IUnicrypt.sol";
 
 interface Pauseable {
     function unpause() external;
@@ -25,7 +30,7 @@ interface Pauseable {
  * @author @Onchained ($TACO)
  * @author @adalquardz ($FONT)
  */
-contract FontsCrowdsale is Ownable {
+contract FontsCrowdsale is Ownable, ReentrancyGuard  {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     address payable contract_owner;
@@ -69,14 +74,30 @@ contract FontsCrowdsale is Ownable {
     uint256 AMOUNT_FONT_FOR_UNISWAP_LP = 1000000 * 10**18; //@change
 
 
+    address public uniswapV2Pair;
+
+
     // Contributions state
     mapping(address => uint256) public contributions;
+    mapping(address => uint256) public font_buyers;
+    address[] public contributors;
+
 
     // Total wei raised (ETH)
     uint256 public weiRaised;
+    uint256 public tokensBought = 0;
+    uint256 public tokensWithdrawn = 0;
+
 
     // Flag to know if liquidity has been locked
     bool public liquidityLocked = false;
+    uint256 public liquidityUnlockTime;
+    uint256 public lockedLiquidityAmount;
+    uint256 public liquidityUnlock;
+    
+
+    bool public isRefundEnabled = true;
+    bool public isFontDistributed = false;
 
     // Pointer to the FONTToken
     IERC20 public fontToken;
@@ -84,18 +105,22 @@ contract FontsCrowdsale is Ownable {
 
 
     // Pointer to the UniswapRouter
-    IUniswapV2Router02 internal uniswapRouter;
+    IUniswapV2Router02 public constant uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+    IUniswapV2Factory constant uniswapFactory = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
+    IUnicrypt constant unicrypt = IUnicrypt(0x17e00383A843A9922bCA3B280C0ADE9f8BA48449);
+
+
 
     //===============================================//
     //                 Constructor                   //
     //===============================================//
     constructor(
-        IERC20 _fontToken,
-        address _uniswapRouter
+        IERC20 _fontToken
     ) public Ownable() {
-        contract_owner = msg.sender;        
+        contract_owner = _msgSender();        
         fontToken = _fontToken;
-        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
+        liquidityUnlock = block.timestamp.add(372 days);
+
     }
 
     //===============================================//
@@ -114,7 +139,7 @@ contract FontsCrowdsale is Ownable {
     // Main entry point for buying into the Pre-Sale. Contract Receives $ETH
     receive() external payable {
         // Prevent owner from buying tokens, but allow them to add pre-sale ETH to the contract for Uniswap liquidity
-        if (owner() != msg.sender) {
+        if (owner() != _msgSender()) {
             // Validations.
 
             require(isOpen(), "FontsCrowdsale: sale did not start yet.");
@@ -124,12 +149,12 @@ contract FontsCrowdsale is Ownable {
                 "FontsCrowdsale: The cap for the current round has been filled."
             );
             require(
-                contributions[msg.sender] < CAP_PER_ADDRESS,
+                contributions[_msgSender()] < CAP_PER_ADDRESS,
                 "FontsCrowdsale: Individual cap has been filled."
             );
 
             // If we've passed most validations, let's get them $FONTs
-            _buyTokens(msg.sender);
+            _buyTokens(_msgSender());
         }
     }
 
@@ -139,6 +164,7 @@ contract FontsCrowdsale is Ownable {
      *
      * At the end of the function we refund the remaining ETH not used for purchase.
      */
+
     function _buyTokens(address beneficiary) internal {
         // How much ETH still available for the current Round CAP
         uint256 weiAllowanceForRound = _totalCapForCurrentRound().sub(weiRaised);
@@ -157,6 +183,7 @@ contract FontsCrowdsale is Ownable {
         uint256 weiAmount = weiAllowanceForAddress < weiAmountForRound
             ? weiAllowanceForAddress
             : weiAmountForRound;
+
 
         // Internal call to run the final validations, and perform the purchase.
         _buyTokens(beneficiary, weiAmount, weiAllowanceForRound);
@@ -188,11 +215,24 @@ contract FontsCrowdsale is Ownable {
 
         tokenAmount = tokenAmount.mul(INITIAL_UNLOCK_PERCENT).div(100);
 
+        require(
+            fontToken.balanceOf(address(this)) >= tokenAmount,
+            "Not enough tokens in the contract"
+        );
+
+
+        tokensBought.add(tokenAmount);
+        contributions[beneficiary].add(weiAmount);
+
+        font_buyers[beneficiary] = font_buyers[beneficiary].add(tokenAmount);
+        contributors.push(beneficiary);
+
         // Transfer the $FONTs to the beneficiary
-        fontToken.safeTransfer(beneficiary, tokenAmount);
+        //fontToken.safeTransfer(beneficiary, tokenAmount);
 
         // Create an event for this purchase
-        emit TokenPurchase(beneficiary, weiAmount, tokenAmount);
+        //emit TokenPurchase(beneficiary, weiAmount, tokenAmount);        
+
     }
 
     // Calculate how many fonts do they get given the amount of wei
@@ -247,6 +287,42 @@ contract FontsCrowdsale is Ownable {
         return "Round 1";
     }
 
+    //Create Pair, but only after toke sale is success, called by owner in case 
+    function createpair() external onlyOwner {
+        require(isCrowdsaleSuccess(),"FontCrowdsale: can only create pair once softcap is reached");  
+        //require(!uniswapV2Pair, "Pair exists already");
+        uniswapV2Pair = uniswapFactory.createPair(address(fontToken), uniswapV2Router.WETH());
+    }
+
+    //after crowdsale success distribute the FONTs
+    //@todo
+    function distributeTokens() external onlyOwner{
+        require(
+            isCrowdsaleSuccess(),
+            "FontCrowdsale: can only distribute tokens after crowdsale success"
+        );        
+        require(liquidityLocked, "Need to lock the liquidity");
+
+        require(!isFontDistributed, "Already FONT Distributed");
+
+        for (uint i=0; i<contributors.length; i++) {
+            uint256 tokenAmount_ = font_buyers[contributors[i]];
+            font_buyers[contributors[i]] = 0;
+
+            // Transfer the $FONTs to the beneficiary
+            fontToken.safeTransfer(contributors[i], tokenAmount_);
+
+            tokensWithdrawn = tokensWithdrawn.add(tokenAmount_);
+
+            // Create an event for this purchase
+            emit TokenPurchase(contributors[i], contributions[contributors[i]], tokenAmount_);        
+        }
+
+        isFontDistributed = true;
+    }
+
+    //Claim token by users, with their own gas
+
 
     /**
      * Function that once sale is complete add the liquidity to Uniswap
@@ -269,6 +345,13 @@ contract FontsCrowdsale is Ownable {
      *
      * For now the only implementation for future usage is making this function onlyOwner.
      */
+    /** 
+     * Call this function once crowd sale is over. 
+     * 1) Create Pair with WETH
+     * 2) Approve the uni to spend FONT
+     * 3) Add liquidity
+     * 4) Lock the LP token to Unicrypt contract for 1 year + 7 days
+     */
     function addAndLockLiquidity() external onlyOwner {
         require(
             isCrowdsaleSuccess(),
@@ -276,13 +359,20 @@ contract FontsCrowdsale is Ownable {
         );
         require(!liquidityLocked, "FontCrowdsale: Liquidity already locked");
 
+        //STEP 1: Create Pair
+        uniswapV2Pair = uniswapFactory.createPair(address(fontToken), uniswapV2Router.WETH());
+
+        //require(uniswapV2Pair, "Create Uniswap Pair first");
+
+
         // Unpause FONTToken forever. This will kick off the game.
-        //Pauseable(address(fontToken)).unpause();
+        // Pauseable(address(fontToken)).unpause();
 
-        // Send the entire balance and all tokens in the contract to Uniswap LP
-        fontToken.approve(address(uniswapRouter), AMOUNT_FONT_FOR_UNISWAP_LP);
+        // Send 100,000 FONTs to uniswap apprivl
+        fontToken.approve(address(uniswapV2Router), AMOUNT_FONT_FOR_UNISWAP_LP);
 
-        uniswapRouter.addLiquidityETH{value: AMOUNT_ETH_FOR_UNISWAP_LP}(
+        ////STEP 3: Add Liquidity 
+        uniswapV2Router.addLiquidityETH{value: AMOUNT_ETH_FOR_UNISWAP_LP}(
             address(fontToken),
             AMOUNT_FONT_FOR_UNISWAP_LP,
             AMOUNT_FONT_FOR_UNISWAP_LP,
@@ -291,13 +381,100 @@ contract FontsCrowdsale is Ownable {
             block.timestamp
         );
         liquidityLocked = true;
+
+        IERC20 liquidityTokens = IERC20(uniswapV2Pair); //Get the Uni LP token
+        
+        //Get the LP token balance 
+        uint256 liquidityBalance = liquidityTokens.balanceOf(contract_owner);
+        
+        uint256 timeToLockTill = liquidityUnlock;
+
+        //Approve the LP token to unicrypt
+        liquidityTokens.approve(address(unicrypt), liquidityBalance);
+
+        //Lock it in Unicrypto
+        unicrypt.depositToken{value: 0}(uniswapV2Pair, liquidityBalance, timeToLockTill);
+
+
+        lockedLiquidityAmount = lockedLiquidityAmount.add(liquidityBalance);
+        
     }
+
+
+    //Function to withdra the Unicrypto LP tokens 
+    function withdrawFromUnicrypt(uint256 amount) external onlyOwner {
+        unicrypt.withdrawToken(uniswapV2Pair, amount);
+    }
+
+
+    //Refund is called by investor 
+    function getRefund() external nonReentrant {
+        require(isRefundEnabled, "Cannot refund");
+        require(
+            isCrowdsaleFailed(),
+            "FontsCrowdsale: Can only refundable if crowdsale failed to secure softcap AND after crowdsale time over"
+        );        
+        require(_msgSender() == tx.origin);
+        address payable beneficiary = _msgSender();
+        uint256 amount = contributions[beneficiary];
+        contributions[beneficiary] = 0;
+        tokensBought = tokensBought.sub(font_buyers[beneficiary]);
+        font_buyers[beneficiary] = 0;
+        beneficiary.transfer(amount);
+    }
+
+    //FONT can be claim by investors after sale success, It is optional 
+    function claimFont() external nonReentrant {
+        require(
+            isCrowdsaleSuccess(),
+            "FontsCrowdsale: can only send liquidity once hardcap is reached"
+        );  
+        require(_msgSender() == tx.origin);
+        require(font_buyers[_msgSender()] > 0, "FontsCrowdsale: No FONT token available for this address to claim");
+        
+        uint256 tokenAmount_ = font_buyers[_msgSender()];
+
+
+
+        font_buyers[_msgSender()] = 0;
+
+        // Transfer the $FONTs to the beneficiary
+        fontToken.safeTransfer(_msgSender(), tokenAmount_);
+
+        tokensWithdrawn = tokensWithdrawn.add(tokenAmount_);
+
+        // Create an event for this purchase
+        //emit TokenPurchase(beneficiary, weiAmount, tokenAmount);        
+    }
+
+
+
+    function lockWithUnicrypt() external onlyOwner {
+        /*
+        pool = CR50.uniswapV2Pair();
+        IERC20 liquidityTokens = IERC20(pool);
+        uint256 liquidityBalance = liquidityTokens.balanceOf(address(this));
+        uint256 timeToLuck = liquidityUnlock;
+        liquidityTokens.approve(address(unicrypt), liquidityBalance);
+
+        unicrypt.depositToken{value: 0}(pool, liquidityBalance, timeToLuck);
+        lockedLiquidityAmount = lockedLiquidityAmount.add(liquidityBalance);
+        */
+    }
+
 
     // Return bool when crowdsale reached soft cap and time is over
     //@Done
     function isCrowdsaleSuccess() public view returns (bool) {
         return (block.timestamp >= CROWDSALE_END_TIME && weiRaised >= SOFT_CAP) || weiRaised >= HARD_CAP;
-    }    
+    }   
+
+    // Return bool when crowdsale failed
+    //@Done
+    function isCrowdsaleFailed() public view returns (bool) {
+        return block.timestamp >= CROWDSALE_END_TIME && weiRaised <= SOFT_CAP;
+    }   
+
     //@Done
     function isCrowdsaleTimeEnded() public view returns (bool) {
         return block.timestamp >= CROWDSALE_END_TIME;
@@ -308,19 +485,22 @@ contract FontsCrowdsale is Ownable {
             isCrowdsaleSuccess(),
             "FontsCrowdsale: can only send liquidity once hardcap is reached"
         );        
-        //require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
+        require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
         require(amount <= address(this).balance);
         contract_owner.transfer(amount);
         return true;
     }
     //@Done
-    function withdrawFonts(uint amount) external onlyOwner returns(bool){
+    function withdrawUnsoldFonts(uint amount) external onlyOwner returns(bool){
         require(
             isCrowdsaleTimeEnded(),
             "FontCrowdsale: can only withdraw after crowdsale time ends"
         );  
-        //require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
-        require(amount <= fontToken.balanceOf(address(this)));
+        require(liquidityLocked, "FontCrowdsale: Can't withdraw before Uniswap liquidity locked");
+        require(isFontDistributed, "FontCrowdsale: Can't withdraw before FONT distribution");
+
+        require(amount <= fontToken.balanceOf(address(this)) - tokensBought, "FontCrowdsale: You can withdraw only unsold Fonts");
+
         fontToken.safeTransfer(contract_owner, amount);
         return true;
     }
@@ -333,4 +513,14 @@ contract FontsCrowdsale is Ownable {
         return address(this).balance;
     }
 
+    //@done
+    //Get balance hold by address
+    function userFontBalance(address user) external view returns (uint256) {
+        return font_buyers[user];
+    }
+
+    //@done
+    function userEthContribution(address user) external view returns (uint256) {
+        return contributions[user];
+    }
 }
