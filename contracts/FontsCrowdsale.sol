@@ -24,7 +24,7 @@ interface Pauseable {
  *      Softcap = 300 ETH
  *      Hardcap = 400 ETH
  *      Once hardcap is reached:
- *        All liquidity is added to Uniswap and locked automatically, 0% risk of rug pull.
+ *        Liquidity is added to Uniswap and locked, 0% risk of rug pull.
  *
  * @author soulbar@protonmail.com ($TEND)
  * @author @Onchained ($TACO)
@@ -42,7 +42,7 @@ contract FontsCrowdsale is Ownable, ReentrancyGuard  {
 
     // Caps
     uint256 public constant ROUND_1_CAP = 180 ether; //@change for testing
-    uint256 public constant ROUND_2_CAP = 400 ether; //@change
+    uint256 public constant ROUND_2_CAP = 400 ether; //@change for testing
 
     uint256 public constant SOFT_CAP = 300 ether; // Softcap  = 300 //@change for testing 
     uint256 public constant HARD_CAP = 400 ether; // hardcap = +100 //@change for testing 
@@ -401,7 +401,7 @@ contract FontsCrowdsale is Ownable, ReentrancyGuard  {
     }
 
 
-    //Function to withdra the Unicrypto LP tokens 
+    //Function to withdraw LP tokens from unicrypt
     function withdrawFromUnicrypt(uint256 amount) external onlyOwner {
         unicrypt.withdrawToken(uniswapV2Pair, amount);
     }
@@ -414,7 +414,7 @@ contract FontsCrowdsale is Ownable, ReentrancyGuard  {
             isCrowdsaleFailed(),
             "FontsCrowdsale: Can only refundable if crowdsale failed to secure softcap AND after crowdsale time over"
         );        
-        require(_msgSender() == tx.origin);
+        
         address payable beneficiary = _msgSender();
         uint256 amount = contributions[beneficiary];
         contributions[beneficiary] = 0;
@@ -447,20 +447,6 @@ contract FontsCrowdsale is Ownable, ReentrancyGuard  {
         //emit TokenPurchase(beneficiary, weiAmount, tokenAmount);        
     }
 
-
-
-    function lockWithUnicrypt() external onlyOwner {
-        /*
-        pool = CR50.uniswapV2Pair();
-        IERC20 liquidityTokens = IERC20(pool);
-        uint256 liquidityBalance = liquidityTokens.balanceOf(address(this));
-        uint256 timeToLuck = liquidityUnlock;
-        liquidityTokens.approve(address(unicrypt), liquidityBalance);
-
-        unicrypt.depositToken{value: 0}(pool, liquidityBalance, timeToLuck);
-        lockedLiquidityAmount = lockedLiquidityAmount.add(liquidityBalance);
-        */
-    }
 
 
     // Return bool when crowdsale reached soft cap and time is over

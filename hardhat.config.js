@@ -4,6 +4,7 @@
 
 require('@nomiclabs/hardhat-ethers');
 require("@nomiclabs/hardhat-etherscan");
+require("hardhat-gas-reporter");
 
 
 const { alchemyApiKey, mnemonic, pvt1key } = require('./sregate');
@@ -26,4 +27,9 @@ module.exports = {
     apiKey: "QAXK46VQB2BK1JJS5ZRU2UGWSWKAICDNB4"
   },  
   solidity: "0.7.3",
+  gasReporter: {
+    currency: 'USD',
+    gasPrice: 210,
+    enabled: true,
+  }  
 };
