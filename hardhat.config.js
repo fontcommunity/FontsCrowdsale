@@ -24,7 +24,7 @@ module.exports = {
     },*/
   },
   etherscan: {
-    apiKey: "QAXK46VQB2BK1JJS5ZRU2UGWSWKAICDNB4"
+    apiKey: "F77KW26RW1EMRY3GY62XWH3AW719RPW9CF"
   },  
   solidity: "0.7.3",
   gasReporter: {
