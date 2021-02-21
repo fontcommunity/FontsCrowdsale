@@ -18,6 +18,9 @@ contract FontsPresale is Context, ReentrancyGuard, Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
+    //Change this to true if you run for testnets 
+    bool constant IS_TESTNET_LOCAL = true;
+
     //===============================================//
     //          Contract Variables: Mainnet          //
     //===============================================//
@@ -47,6 +50,24 @@ contract FontsPresale is Context, ReentrancyGuard, Ownable {
 
     IUniswapV2Router02 constant UNISWAP_V2_ADDRESS =  IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     IUniswapV2Factory constant uniswapFactory = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f); 
+
+    //=======================================================================//
+    //   Contract Testnet Variables: Testnet variable for quick test         //
+    //=======================================================================//
+    //All Variables with _TN_ prefix is for Testnets, This values are passed in constructor via ChangeSettingsForTestnet()
+    uint256 public constant _TN_MIN_CONTRIBUTION = 0.1 ether;
+    uint256 public constant _TN_MAX_CONTRIBUTION = 15 ether;
+
+    uint256 public constant _TN_HARD_CAP = 4.5 ether; //@change for testing
+    uint256 public constant _TN_UNI_LP_ETH = 2.15 ether;
+
+    uint256 public constant _TN_DURATION_REFUND = 7 minutes;
+    uint256 public constant _TN_DURATION_LIQUIDITY_LOCK = 45 minutes;
+
+    uint256 public constant _TN_DURATION_TOKEN_DISTRIBUTION_ROUND_2 = 8 minutes;
+    uint256 public constant _TN_DURATION_TOKEN_DISTRIBUTION_ROUND_3 = 15 minutes;    
+
+    address _TN_FONT_TOKEN_ADDRESS = 0x847095304401da26CCb4A53c6260B61E7C46a5E7; 
 
 
     //General variables
@@ -97,12 +118,34 @@ contract FontsPresale is Context, ReentrancyGuard, Ownable {
 
     constructor() {
         contract_owner = _msgSender(); 
-        //ChangeSettingsForTestnet();
+        ChangeSettingsForTestnet();
         UNI_LP_FONT = UNI_LP_ETH.mul(FONTS_PER_ETH_UNISWAP);
-        FONT_ERC20 = IERC20(FONT_TOKEN_ADDRESS);
     }
 
+    //This function change some basic variable like durations / ETH for testnets for quick testing
+    //@done
+    function ChangeSettingsForTestnet() internal {
+        if(IS_TESTNET_LOCAL) {
+            MIN_CONTRIBUTION = _TN_MIN_CONTRIBUTION;
+            MAX_CONTRIBUTION = _TN_MAX_CONTRIBUTION;
 
+            HARD_CAP = _TN_HARD_CAP; //@change for testing
+            UNI_LP_ETH = _TN_UNI_LP_ETH;//
+
+            DURATION_REFUND = _TN_DURATION_REFUND;
+            DURATION_LIQUIDITY_LOCK = _TN_DURATION_LIQUIDITY_LOCK;
+
+            DURATION_TOKEN_DISTRIBUTION_ROUND_2 = _TN_DURATION_TOKEN_DISTRIBUTION_ROUND_2;
+            DURATION_TOKEN_DISTRIBUTION_ROUND_3 = _TN_DURATION_TOKEN_DISTRIBUTION_ROUND_3;    
+
+            //Address for ERC20 Token
+            FONT_ERC20 = IERC20(_TN_FONT_TOKEN_ADDRESS); 
+        }
+        else {
+            FONT_ERC20 = IERC20(FONT_TOKEN_ADDRESS);
+        }
+    }
+    
     //@done
     receive() external payable {   
         buyTokens();
@@ -374,7 +417,7 @@ contract FontsPresale is Context, ReentrancyGuard, Ownable {
         user.transfer(amount);
     }
 
-    //@done let anyone call it
+
     function bulkRefund() external nonReentrant {
         require(!liquidityAdded);
         require(!bulkRefunded, "Already refunded");

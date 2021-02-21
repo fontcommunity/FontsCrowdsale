@@ -22,7 +22,7 @@ contract TestERC20 is ERC20Burnable {
      *
      * See {ERC20-constructor}.
      */
-    constructor() ERC20("Gest", "GEST") {
+    constructor() ERC20("Mest", "MEST") {
         _mint(_msgSender(), 2000000 * 10**18);
     }
 

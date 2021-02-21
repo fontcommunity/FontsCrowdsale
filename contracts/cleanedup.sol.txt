@@ -13,7 +13,7 @@ import "./IUniswapV2Factory.sol";
 pragma solidity ^0.7.3;
 
 
-contract FontsPresale is Context, ReentrancyGuard, Ownable {
+contract FontsPresaleClean is Context, ReentrancyGuard, Ownable {
     using SafeMath for uint;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
